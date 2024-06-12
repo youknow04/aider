@@ -440,6 +440,10 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
             test_cmd=args.test_cmd,
             attribute_author=args.attribute_author,
             attribute_committer=args.attribute_committer,
+            short_key_1=args.short_key_1,
+            short_key_2=args.short_key_2,
+            short_key_3=args.short_key_3,
+            short_key_4=args.short_key_4,
         )
 
     except ValueError as err:
