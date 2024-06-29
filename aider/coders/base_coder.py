@@ -13,7 +13,6 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 
 import git
-import openai
 from jsonschema import Draft7Validator
 from rich.console import Console, Text
 from rich.markdown import Markdown
@@ -37,7 +36,7 @@ class MissingAPIKeyError(ValueError):
     pass
 
 
-class ExhaustedContextWindow(Exception):
+class FinishReasonLength(Exception):
     pass
 
 
@@ -67,6 +66,7 @@ class Coder:
     test_cmd = None
     lint_outcome = None
     test_outcome = None
+    multi_response_content = ""
 
     @classmethod
     def create(
@@ -225,6 +225,7 @@ class Coder:
         short_key_2=None,
         short_key_3=None,
         short_key_4=None,
+        attribute_commit_message=False,
     ):
         if not fnames:
             fnames = []
@@ -289,6 +290,7 @@ class Coder:
                     models=main_model.commit_message_models(),
                     attribute_author=attribute_author,
                     attribute_committer=attribute_committer,
+                    attribute_commit_message=attribute_commit_message,
                 )
                 self.root = self.repo.root
             except FileNotFoundError:
@@ -820,28 +822,55 @@ class Coder:
         if self.verbose:
             utils.show_messages(messages, functions=self.functions)
 
+        self.multi_response_content = ""
+        if self.show_pretty() and self.stream:
+            mdargs = dict(style=self.assistant_output_color, code_theme=self.code_theme)
+            self.mdstream = MarkdownStream(mdargs=mdargs)
+        else:
+            self.mdstream = None
+
         exhausted = False
         interrupted = False
         try:
-            yield from self.send(messages, functions=self.functions)
-        except KeyboardInterrupt:
-            interrupted = True
-        except ExhaustedContextWindow:
-            exhausted = True
-        except litellm.exceptions.BadRequestError as err:
-            if "ContextWindowExceededError" in err.message:
-                exhausted = True
-            else:
-                self.io.tool_error(f"BadRequestError: {err}")
-                return
-        except openai.BadRequestError as err:
-            if "maximum context length" in str(err):
-                exhausted = True
-            else:
-                raise err
-        except Exception as err:
-            self.io.tool_error(f"Unexpected error: {err}")
-            return
+            while True:
+                try:
+                    yield from self.send(messages, functions=self.functions)
+                    break
+                except KeyboardInterrupt:
+                    interrupted = True
+                    break
+                except litellm.ContextWindowExceededError:
+                    # The input is overflowing the context window!
+                    exhausted = True
+                    break
+                except litellm.exceptions.BadRequestError as br_err:
+                    self.io.tool_error(f"BadRequestError: {br_err}")
+                    return
+                except FinishReasonLength:
+                    # We hit the 4k output limit!
+                    if not self.main_model.can_prefill:
+                        exhausted = True
+                        break
+
+                    # Use prefill to continue the response
+                    self.multi_response_content += self.partial_response_content
+                    if messages[-1]["role"] == "assistant":
+                        messages[-1]["content"] = self.multi_response_content
+                    else:
+                        messages.append(dict(role="assistant", content=self.multi_response_content))
+                except Exception as err:
+                    self.io.tool_error(f"Unexpected error: {err}")
+                    traceback.print_exc()
+                    return
+        finally:
+            if self.mdstream:
+                self.live_incremental_response(True)
+                self.mdstream = None
+
+            if self.multi_response_content:
+                self.multi_response_content += self.partial_response_content
+                self.partial_response_content = self.multi_response_content
+                self.multi_response_content = ""
 
         if exhausted:
             self.show_exhausted_error()
@@ -1111,7 +1140,7 @@ class Coder:
         if show_func_err and show_content_err:
             self.io.tool_error(show_func_err)
             self.io.tool_error(show_content_err)
-            raise Exception("No data found in openai response!")
+            raise Exception("No data found in LLM response!")
 
         tokens = None
         if hasattr(completion, "usage") and completion.usage is not None:
@@ -1139,61 +1168,57 @@ class Coder:
         if tokens is not None:
             self.io.tool_output(tokens)
 
+        if (
+            hasattr(completion.choices[0], "finish_reason")
+            and completion.choices[0].finish_reason == "length"
+        ):
+            raise FinishReasonLength()
+
     def show_send_output_stream(self, completion):
-        if self.show_pretty():
-            mdargs = dict(style=self.assistant_output_color, code_theme=self.code_theme)
-            mdstream = MarkdownStream(mdargs=mdargs)
-        else:
-            mdstream = None
+        for chunk in completion:
+            if len(chunk.choices) == 0:
+                continue
 
-        try:
-            for chunk in completion:
-                if len(chunk.choices) == 0:
-                    continue
+            if (
+                hasattr(chunk.choices[0], "finish_reason")
+                and chunk.choices[0].finish_reason == "length"
+            ):
+                raise FinishReasonLength()
 
-                if (
-                    hasattr(chunk.choices[0], "finish_reason")
-                    and chunk.choices[0].finish_reason == "length"
-                ):
-                    raise ExhaustedContextWindow()
+            try:
+                func = chunk.choices[0].delta.function_call
+                # dump(func)
+                for k, v in func.items():
+                    if k in self.partial_response_function_call:
+                        self.partial_response_function_call[k] += v
+                    else:
+                        self.partial_response_function_call[k] = v
+            except AttributeError:
+                pass
 
-                try:
-                    func = chunk.choices[0].delta.function_call
-                    # dump(func)
-                    for k, v in func.items():
-                        if k in self.partial_response_function_call:
-                            self.partial_response_function_call[k] += v
-                        else:
-                            self.partial_response_function_call[k] = v
-                except AttributeError:
-                    pass
+            try:
+                text = chunk.choices[0].delta.content
+                if text:
+                    self.partial_response_content += text
+            except AttributeError:
+                text = None
 
-                try:
-                    text = chunk.choices[0].delta.content
-                    if text:
-                        self.partial_response_content += text
-                except AttributeError:
-                    text = None
+            if self.show_pretty():
+                self.live_incremental_response(False)
+            elif text:
+                sys.stdout.write(text)
+                sys.stdout.flush()
+                yield text
 
-                if self.show_pretty():
-                    self.live_incremental_response(mdstream, False)
-                elif text:
-                    sys.stdout.write(text)
-                    sys.stdout.flush()
-                    yield text
-        finally:
-            if mdstream:
-                self.live_incremental_response(mdstream, True)
-
-    def live_incremental_response(self, mdstream, final):
+    def live_incremental_response(self, final):
         show_resp = self.render_incremental_response(final)
-        if not show_resp:
-            return
-
-        mdstream.update(show_resp, final=final)
+        self.mdstream.update(show_resp, final=final)
 
     def render_incremental_response(self, final):
-        return self.partial_response_content
+        return self.get_multi_response_content()
+
+    def get_multi_response_content(self):
+        return self.multi_response_content + self.partial_response_content
 
     def get_rel_fname(self, fname):
         return os.path.relpath(fname, self.root)

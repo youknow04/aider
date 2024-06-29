@@ -12,6 +12,20 @@ cog.out(text)
 
 # Release history
 
+### v0.40.6
+
+- Fixed `/undo` so it works with `--no-attribute-author`.
+
+### v0.40.5
+
+- Bump versions to pickup latest litellm to fix streaming issue with Gemini
+  - https://github.com/BerriAI/litellm/issues/4408
+
+### v0.40.1
+
+- Improved context awareness of repomap.
+- Restored proper `--help` functionality.
+
 ### v0.40.0
 
 - Improved prompting to discourage Sonnet from wasting tokens emitting unchanging code (#705).
