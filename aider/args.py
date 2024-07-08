@@ -6,7 +6,7 @@ import sys
 
 import configargparse
 
-from aider import __version__, models
+from aider import __version__
 from aider.args_formatter import (
     DotEnvFormatter,
     MarkdownHelpFormatter,
@@ -25,7 +25,6 @@ def get_parser(default_config_files, git_root):
         description="aider is GPT powered coding in your terminal",
         add_config_file_help=True,
         default_config_files=default_config_files,
-        config_file_parser_class=configargparse.YAMLConfigFileParser,
         auto_env_var_prefix="AIDER_",
     )
     group = parser.add_argument_group("Main")
@@ -44,12 +43,11 @@ def get_parser(default_config_files, git_root):
         env_var="ANTHROPIC_API_KEY",
         help="Specify the Anthropic API key",
     )
-    default_model = models.DEFAULT_MODEL_NAME
     group.add_argument(
         "--model",
         metavar="MODEL",
-        default=default_model,
-        help=f"Specify the model to use for the main chat (default: {default_model})",
+        default=None,
+        help="Specify the model to use for the main chat",
     )
     opus_model = "claude-3-opus-20240229"
     group.add_argument(
@@ -144,13 +142,13 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--model-settings-file",
         metavar="MODEL_SETTINGS_FILE",
-        default=None,
+        default=".aider.model.settings.yml",
         help="Specify a file with aider model settings for unknown models",
     )
     group.add_argument(
         "--model-metadata-file",
         metavar="MODEL_METADATA_FILE",
-        default=None,
+        default=".aider.model.metadata.json",
         help="Specify a file with context window and costs for unknown models",
     )
     group.add_argument(
@@ -387,7 +385,6 @@ def get_parser(default_config_files, git_root):
     )
     group.add_argument(
         "--test-cmd",
-        action="append",
         help="Specify command to run tests",
         default=[],
     )
@@ -463,6 +460,12 @@ def get_parser(default_config_files, git_root):
         "--show-prompts",
         action="store_true",
         help="Print the system prompts and exit (debug)",
+        default=False,
+    )
+    group.add_argument(
+        "--exit",
+        action="store_true",
+        help="Do all startup activities then exit before accepting user input (debug)",
         default=False,
     )
     group.add_argument(

@@ -3,13 +3,13 @@ name: Windows Python Tests
 on:
   push:
     paths-ignore:
-      - 'website/**'
+      - 'aider/website/**'
       - README.md
     branches:
       - main
   pull_request:
     paths-ignore:
-      - 'website/**'
+      - 'aider/website/**'
       - README.md
     branches:
       - main
@@ -29,10 +29,6 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-
-    - name: Install universal ctags
-      run: |
-        choco install universal-ctags
 
     - name: Install dependencies
       run: |

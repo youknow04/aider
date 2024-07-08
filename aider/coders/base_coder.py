@@ -2,18 +2,20 @@
 
 import hashlib
 import json
+import mimetypes
 import os
+import platform
 import re
 import sys
 import threading
 import time
 import traceback
 from collections import defaultdict
+from datetime import datetime
 from json.decoder import JSONDecodeError
 from pathlib import Path
 
 import git
-from jsonschema import Draft7Validator
 from rich.console import Console, Text
 from rich.markdown import Markdown
 
@@ -22,7 +24,7 @@ from aider.commands import Commands
 from aider.history import ChatSummary
 from aider.io import InputOutput
 from aider.linter import Linter
-from aider.litellm import litellm
+from aider.llm import litellm
 from aider.mdstream import MarkdownStream
 from aider.repo import GitRepo
 from aider.repomap import RepoMap
@@ -48,6 +50,7 @@ class Coder:
     abs_fnames = None
     repo = None
     last_aider_commit_hash = None
+    aider_commit_hashes = set()
     aider_edited_files = None
     last_asked_for_commit_time = 0
     repo_map = None
@@ -75,11 +78,13 @@ class Coder:
         edit_format=None,
         io=None,
         from_coder=None,
+        summarize_from_coder=True,
         **kwargs,
     ):
         from . import (
             EditBlockCoder,
             EditBlockFencedCoder,
+            HelpCoder,
             UnifiedDiffCoder,
             WholeFileCoder,
         )
@@ -107,7 +112,7 @@ class Coder:
             # confused the new LLM. It may try and imitate it, disobeying
             # the system prompt.
             done_messages = from_coder.done_messages
-            if edit_format != from_coder.edit_format and done_messages:
+            if edit_format != from_coder.edit_format and done_messages and summarize_from_coder:
                 done_messages = from_coder.summarizer.summarize_all(done_messages)
 
             # Bring along context from the old Coder
@@ -115,6 +120,7 @@ class Coder:
                 fnames=from_coder.get_inchat_relative_files(),
                 done_messages=done_messages,
                 cur_messages=from_coder.cur_messages,
+                aider_commit_hashes=from_coder.aider_commit_hashes,
             )
 
             use_kwargs.update(update)  # override to complete the switch
@@ -130,6 +136,8 @@ class Coder:
             res = WholeFileCoder(main_model, io, **kwargs)
         elif edit_format == "udiff":
             res = UnifiedDiffCoder(main_model, io, **kwargs)
+        elif edit_format == "help":
+            res = HelpCoder(main_model, io, **kwargs)
         else:
             raise ValueError(f"Unknown edit format {edit_format}")
 
@@ -226,12 +234,19 @@ class Coder:
         short_key_3=None,
         short_key_4=None,
         attribute_commit_message=False,
+        aider_commit_hashes=None,
+        map_mul_no_files=8,
     ):
         if not fnames:
             fnames = []
 
         if io is None:
             io = InputOutput()
+
+        if aider_commit_hashes:
+            self.aider_commit_hashes = aider_commit_hashes
+        else:
+            self.aider_commit_hashes = set()
 
         self.chat_completion_call_hashes = []
         self.chat_completion_response_hashes = []
@@ -318,6 +333,7 @@ class Coder:
         if not self.repo:
             self.find_common_root()
 
+        max_inp_tokens = self.main_model.info.get("max_input_tokens") or 0
         if main_model.use_repo_map and self.repo and self.gpt_prompts.repo_content_prefix:
             self.repo_map = RepoMap(
                 map_tokens,
@@ -326,7 +342,8 @@ class Coder:
                 io,
                 self.gpt_prompts.repo_content_prefix,
                 self.verbose,
-                self.main_model.info.get("max_input_tokens"),
+                max_inp_tokens,
+                map_mul_no_files=map_mul_no_files,
             )
 
         if max_chat_history_tokens is None:
@@ -355,6 +372,8 @@ class Coder:
 
         # validate the functions jsonschema
         if self.functions:
+            from jsonschema import Draft7Validator
+
             for function in self.functions:
                 Draft7Validator.check_schema(function)
 
@@ -554,18 +573,16 @@ class Coder:
             files_reply = "Ok, any changes I propose will be to those files."
         elif repo_content:
             files_content = self.gpt_prompts.files_no_full_files_with_repo_map
-            files_reply = (
-                "Ok, based on your requests I will suggest which files need to be edited and then"
-                " stop and wait for your approval."
-            )
+            files_reply = self.gpt_prompts.files_no_full_files_with_repo_map_reply
         else:
             files_content = self.gpt_prompts.files_no_full_files
             files_reply = "Ok."
 
-        files_messages += [
-            dict(role="user", content=files_content),
-            dict(role="assistant", content=files_reply),
-        ]
+        if files_content:
+            files_messages += [
+                dict(role="user", content=files_content),
+                dict(role="assistant", content=files_reply),
+            ]
 
         images_message = self.get_images_message()
         if images_message is not None:
@@ -583,10 +600,12 @@ class Coder:
         image_messages = []
         for fname, content in self.get_abs_fnames_content():
             if is_image_file(fname):
-                image_url = f"data:image/{Path(fname).suffix.lstrip('.')};base64,{content}"
-                image_messages.append(
-                    {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}}
-                )
+                mime_type, _ = mimetypes.guess_type(fname)
+                if mime_type and mime_type.startswith("image/"):
+                    image_url = f"data:{mime_type};base64,{content}"
+                    image_messages.append(
+                        {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}}
+                    )
 
         if not image_messages:
             return None
@@ -728,7 +747,22 @@ class Coder:
     def fmt_system_prompt(self, prompt):
         lazy_prompt = self.gpt_prompts.lazy_prompt if self.main_model.lazy else ""
 
-        prompt = prompt.format(fence=self.fence, lazy_prompt=lazy_prompt)
+        platform_text = f"- The user's system: {platform.platform()}\n"
+        if os.name == "nt":
+            var = "COMSPEC"
+        else:
+            var = "SHELL"
+
+        val = os.getenv(var)
+        platform_text += f"- The user's shell: {var}={val}\n"
+        dt = datetime.now().isoformat()
+        platform_text += f"- The current date/time: {dt}"
+
+        prompt = prompt.format(
+            fence=self.fence,
+            lazy_prompt=lazy_prompt,
+            platform=platform_text,
+        )
         return prompt
 
     def format_messages(self):
@@ -737,7 +771,8 @@ class Coder:
 
         example_messages = []
         if self.main_model.examples_as_sys_msg:
-            main_sys += "\n# Example conversations:\n\n"
+            if self.gpt_prompts.example_messages:
+                main_sys += "\n# Example conversations:\n\n"
             for msg in self.gpt_prompts.example_messages:
                 role = msg["role"]
                 content = self.fmt_system_prompt(msg["content"])
@@ -817,8 +852,6 @@ class Coder:
 
         messages = self.format_messages()
 
-        self.io.log_llm_history("TO LLM", format_messages(messages))
-
         if self.verbose:
             utils.show_messages(messages, functions=self.functions)
 
@@ -852,8 +885,8 @@ class Coder:
                         exhausted = True
                         break
 
-                    # Use prefill to continue the response
-                    self.multi_response_content += self.partial_response_content
+                    self.multi_response_content = self.get_multi_response_content()
+
                     if messages[-1]["role"] == "assistant":
                         messages[-1]["content"] = self.multi_response_content
                     else:
@@ -867,10 +900,8 @@ class Coder:
                 self.live_incremental_response(True)
                 self.mdstream = None
 
-            if self.multi_response_content:
-                self.multi_response_content += self.partial_response_content
-                self.partial_response_content = self.multi_response_content
-                self.multi_response_content = ""
+            self.partial_response_content = self.get_multi_response_content(True)
+            self.multi_response_content = ""
 
         if exhausted:
             self.show_exhausted_error()
@@ -889,8 +920,6 @@ class Coder:
             content = ""
 
         self.io.tool_output()
-
-        self.io.log_llm_history("LLM RESPONSE", format_content("ASSISTANT", content))
 
         if interrupted:
             content += "\n^C KeyboardInterrupt"
@@ -1084,6 +1113,8 @@ class Coder:
         self.partial_response_content = ""
         self.partial_response_function_call = dict()
 
+        self.io.log_llm_history("TO LLM", format_messages(messages))
+
         interrupted = False
         try:
             hash_object, completion = send_with_retries(
@@ -1099,6 +1130,11 @@ class Coder:
             self.keyboard_interrupt()
             interrupted = True
         finally:
+            self.io.log_llm_history(
+                "LLM RESPONSE",
+                format_content("ASSISTANT", self.partial_response_content),
+            )
+
             if self.partial_response_content:
                 self.io.ai_output(self.partial_response_content)
             elif self.partial_response_function_call:
@@ -1217,8 +1253,13 @@ class Coder:
     def render_incremental_response(self, final):
         return self.get_multi_response_content()
 
-    def get_multi_response_content(self):
-        return self.multi_response_content + self.partial_response_content
+    def get_multi_response_content(self, final=False):
+        cur = self.multi_response_content
+        new = self.partial_response_content
+
+        if new.rstrip() != new and not final:
+            new = new.rstrip()
+        return cur + new
 
     def get_rel_fname(self, fname):
         return os.path.relpath(fname, self.root)
@@ -1227,13 +1268,19 @@ class Coder:
         files = [self.get_rel_fname(fname) for fname in self.abs_fnames]
         return sorted(set(files))
 
+    def is_file_safe(self, fname):
+        try:
+            return Path(self.abs_root_path(fname)).is_file()
+        except OSError:
+            return
+
     def get_all_relative_files(self):
         if self.repo:
             files = self.repo.get_tracked_files()
         else:
             files = self.get_inchat_relative_files()
 
-        files = [fname for fname in files if Path(self.abs_root_path(fname)).is_file()]
+        files = [fname for fname in files if self.is_file_safe(fname)]
         return sorted(set(files))
 
     def get_all_abs_files(self):
@@ -1325,8 +1372,7 @@ class Coder:
 
         tokens = 0
         for fname in self.abs_fnames:
-            relative_fname = self.get_rel_fname(fname)
-            if is_image_file(relative_fname):
+            if is_image_file(fname):
                 continue
             content = self.io.read_text(fname)
             tokens += self.main_model.token_count(content)
@@ -1440,11 +1486,12 @@ class Coder:
         return context
 
     def auto_commit(self, edited):
-        # context = self.get_context_from_history(self.cur_messages)
-        res = self.repo.commit(fnames=edited, aider_edits=True)
+        context = self.get_context_from_history(self.cur_messages)
+        res = self.repo.commit(fnames=edited, context=context, aider_edits=True)
         if res:
             commit_hash, commit_message = res
             self.last_aider_commit_hash = commit_hash
+            self.aider_commit_hashes.add(commit_hash)
             self.last_aider_commit_message = commit_message
             if self.show_diffs:
                 self.commands.cmd_diff()
