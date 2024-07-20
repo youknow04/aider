@@ -12,6 +12,51 @@ cog.out(text)
 
 # Release history
 
+### Aider v0.45.1
+
+- Use 4o-mini as the weak model wherever 3.5-turbo was used.
+
+### Aider v0.45.0
+
+- GPT-4o mini scores similar to the original GPT 3.5, using whole edit format.
+- Aider is better at offering to add files to the chat on Windows.
+- Bugfix corner cases for `/undo` with new files or new repos.
+- Now shows last 4 characters of API keys in `--verbose` output.
+- Bugfix to precedence of multiple `.env` files.
+- Bugfix to gracefully handle HTTP errors when installing pandoc.
+- Aider wrote 42% of the code in this release.
+
+### Aider v0.44.0
+
+- Default pip install size reduced by 3-12x.
+- Added 3 package extras, which aider will offer to install when needed:
+  - `aider-chat[help]`
+  - `aider-chat[browser]`
+  - `aider-chat[playwright]`
+- Improved regex for detecting URLs in user chat messages.
+- Bugfix to globbing logic when absolute paths are included in `/add`.
+- Simplified output of `--models`.
+- The `--check-update` switch was renamed to `--just-check-updated`.
+- The `--skip-check-update` switch was renamed to `--[no-]check-update`.
+- Aider wrote 29% of the code in this release (157/547 lines).
+
+### Aider v0.43.4
+
+- Added scipy back to main requirements.txt.
+
+### Aider v0.43.3
+
+- Added build-essentials back to main Dockerfile.
+
+### Aider v0.43.2
+
+- Moved HuggingFace embeddings deps into [hf-embed] extra.
+- Added [dev] extra.
+
+### Aider v0.43.1
+
+- Replace the torch requirement with the CPU only version, because the GPU versions are huge.
+
 ### Aider v0.43.0
 
 - Use `/help <question>` to [ask for help about using aider](https://aider.chat/docs/troubleshooting/support.html), customizing settings, troubleshooting, using LLMs, etc.
@@ -21,6 +66,7 @@ cog.out(text)
 - Default `--model-settings-file` is now `.aider.model.settings.yml`.
 - Default `--model-metadata-file` is now `.aider.model.metadata.json`.
 - Bugfix affecting launch with `--no-git`.
+- Aider wrote 9% of the 424 lines edited in this release.
 
 ### Aider v0.42.0
 

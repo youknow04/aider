@@ -7,9 +7,9 @@ from pathlib import Path
 import git
 
 from aider import models, prompts, voice
-from aider.help import Help
+from aider.help import Help, install_help_extra
 from aider.llm import litellm
-from aider.scrape import Scraper
+from aider.scrape import Scraper, install_playwright
 from aider.utils import is_image_file
 
 from .dump import dump  # noqa: F401
@@ -66,15 +66,15 @@ class Commands:
             return
 
         if not self.scraper:
-            self.scraper = Scraper(print_error=self.io.tool_error)
+            res = install_playwright(self.io)
+            if not res:
+                self.io.tool_error("Unable to initialize playwright.")
+
+            self.scraper = Scraper(print_error=self.io.tool_error, playwright_available=res)
 
         content = self.scraper.scrape(url) or ""
         # if content:
         #    self.io.tool_output(content)
-
-        instructions = self.scraper.get_playwright_instructions()
-        if instructions:
-            self.io.tool_error(instructions)
 
         content = f"{url}:\n\n" + content
 
@@ -281,10 +281,10 @@ class Commands:
             cost = tk * self.coder.main_model.info.get("input_cost_per_token", 0)
             total_cost += cost
             msg = msg.ljust(col_width)
-            self.io.tool_output(f"${cost:7.4f} {fmt(tk)} {msg} {tip}")
+            self.io.tool_output(f"${cost:7.4f} {fmt(tk)} {msg} {tip}")  # noqa: E231
 
         self.io.tool_output("=" * (width + cost_width + 1))
-        self.io.tool_output(f"${total_cost:7.4f} {fmt(total)} tokens total")
+        self.io.tool_output(f"${total_cost:7.4f} {fmt(total)} tokens total")  # noqa: E231
 
         limit = self.coder.main_model.info.get("max_input_tokens", 0)
         if not limit:
@@ -312,16 +312,28 @@ class Commands:
             return
 
         last_commit = self.coder.repo.repo.head.commit
-        changed_files_last_commit = [
-            item.a_path for item in last_commit.diff(last_commit.parents[0])
-        ]
-
-        if any(self.coder.repo.repo.is_dirty(path=fname) for fname in changed_files_last_commit):
-            self.io.tool_error(
-                "The repository has uncommitted changes in files that were modified in the last"
-                " commit. Please commit or stash them before undoing."
-            )
+        if not last_commit.parents:
+            self.io.tool_error("This is the first commit in the repository. Cannot undo.")
             return
+
+        prev_commit = last_commit.parents[0]
+        changed_files_last_commit = [item.a_path for item in last_commit.diff(prev_commit)]
+
+        for fname in changed_files_last_commit:
+            if self.coder.repo.repo.is_dirty(path=fname):
+                self.io.tool_error(
+                    f"The file {fname} has uncommitted changes. Please stash them before undoing."
+                )
+                return
+
+            # Check if the file was in the repo in the previous commit
+            try:
+                prev_commit.tree[fname]
+            except KeyError:
+                self.io.tool_error(
+                    f"The file {fname} was not in the repository in the previous commit. Cannot undo safely."
+                )
+                return
 
         local_head = self.coder.repo.repo.git.rev_parse("HEAD")
         current_branch = self.coder.repo.repo.active_branch.name
@@ -352,6 +364,7 @@ class Commands:
         # Reset only the files which are part of `last_commit`
         for file_path in changed_files_last_commit:
             self.coder.repo.repo.git.checkout("HEAD~1", file_path)
+
         # Move the HEAD back before the latest commit
         self.coder.repo.repo.git.reset("--soft", "HEAD~1")
 
@@ -400,7 +413,11 @@ class Commands:
 
     def glob_filtered_to_repo(self, pattern):
         try:
-            raw_matched_files = list(Path(self.coder.root).glob(pattern))
+            if os.path.isabs(pattern):
+                # Handle absolute paths
+                raw_matched_files = [Path(pattern)]
+            else:
+                raw_matched_files = list(Path(self.coder.root).glob(pattern))
         except ValueError as err:
             self.io.tool_error(f"Error matching {pattern}: {err}")
             raw_matched_files = []
@@ -409,7 +426,11 @@ class Commands:
         for fn in raw_matched_files:
             matched_files += expand_subdir(fn)
 
-        matched_files = [str(Path(fn).relative_to(self.coder.root)) for fn in matched_files]
+        matched_files = [
+            str(Path(fn).relative_to(self.coder.root))
+            for fn in matched_files
+            if Path(fn).is_relative_to(self.coder.root)
+        ]
 
         # if repo, filter against it
         if self.coder.repo:
@@ -660,6 +681,11 @@ class Commands:
         from aider.coders import Coder
 
         if not self.help:
+            res = install_help_extra(self.io)
+            if not res:
+                self.io.tool_error("Unable to initialize interactive help.")
+                return
+
             self.help = Help()
 
         coder = Coder.create(

@@ -33,6 +33,8 @@ gpt-4-1106-preview
 gpt-4-0125-preview
 gpt-4-vision-preview
 gpt-4-1106-vision-preview
+gpt-4o-mini
+gpt-4o-mini-2024-07-18
 gpt-3.5-turbo
 gpt-3.5-turbo-0301
 gpt-3.5-turbo-0613
@@ -58,6 +60,7 @@ ANTHROPIC_MODELS = [ln.strip() for ln in ANTHROPIC_MODELS.splitlines() if ln.str
 
 @dataclass
 class ModelSettings:
+    # Model class needs to have each of these as well
     name: str
     edit_format: str
     weak_model_name: Optional[str] = None
@@ -79,38 +82,38 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-3.5-turbo",
         "whole",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         reminder_as_sys_msg=True,
     ),
     ModelSettings(
         "gpt-3.5-turbo-0125",
         "whole",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         reminder_as_sys_msg=True,
     ),
     ModelSettings(
         "gpt-3.5-turbo-1106",
         "whole",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         reminder_as_sys_msg=True,
     ),
     ModelSettings(
         "gpt-3.5-turbo-0613",
         "whole",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         reminder_as_sys_msg=True,
     ),
     ModelSettings(
         "gpt-3.5-turbo-16k-0613",
         "whole",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         reminder_as_sys_msg=True,
     ),
     # gpt-4
     ModelSettings(
         "gpt-4-turbo-2024-04-09",
         "udiff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         accepts_images=True,
@@ -120,7 +123,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-4-turbo",
         "udiff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         accepts_images=True,
@@ -130,7 +133,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "openai/gpt-4o",
         "diff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         accepts_images=True,
@@ -140,7 +143,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-4o",
         "diff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         accepts_images=True,
@@ -148,9 +151,25 @@ MODEL_SETTINGS = [
         reminder_as_sys_msg=True,
     ),
     ModelSettings(
+        "gpt-4o-mini",
+        "whole",
+        weak_model_name="gpt-4o-mini",
+        accepts_images=True,
+        lazy=True,
+        reminder_as_sys_msg=True,
+    ),
+    ModelSettings(
+        "openai/gpt-4o-mini",
+        "whole",
+        weak_model_name="openai/gpt-4o-mini",
+        accepts_images=True,
+        lazy=True,
+        reminder_as_sys_msg=True,
+    ),
+    ModelSettings(
         "gpt-4-0125-preview",
         "udiff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         lazy=True,
@@ -160,7 +179,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-4-1106-preview",
         "udiff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         lazy=True,
@@ -169,7 +188,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-4-vision-preview",
         "diff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         accepts_images=True,
@@ -178,7 +197,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-4-0314",
         "diff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         reminder_as_sys_msg=True,
@@ -187,7 +206,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-4-0613",
         "diff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         reminder_as_sys_msg=True,
@@ -195,7 +214,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "gpt-4-32k-0613",
         "diff",
-        weak_model_name="gpt-3.5-turbo",
+        weak_model_name="gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         reminder_as_sys_msg=True,
@@ -339,7 +358,7 @@ MODEL_SETTINGS = [
     ModelSettings(
         "openrouter/openai/gpt-4o",
         "diff",
-        weak_model_name="openrouter/openai/gpt-3.5-turbo",
+        weak_model_name="openrouter/openai/gpt-4o-mini",
         use_repo_map=True,
         send_undo_reply=True,
         accepts_images=True,
@@ -360,6 +379,7 @@ class Model:
     lazy = False
     reminder_as_sys_msg = False
     examples_as_sys_msg = False
+    can_prefill = False
 
     max_chat_history_tokens = 1024
     weak_model = None
@@ -652,11 +672,7 @@ def sanity_check_model(io, model):
         if possible_matches:
             io.tool_output("Did you mean one of these?")
             for match in possible_matches:
-                fq, m = match
-                if fq == m:
-                    io.tool_output(f"- {m}")
-                else:
-                    io.tool_output(f"- {m} ({fq})")
+                io.tool_output(f"- {model}")
 
     if show:
         io.tool_output(f"For more info, see: {urls.model_warnings}\n")
@@ -665,7 +681,7 @@ def sanity_check_model(io, model):
 def fuzzy_match_models(name):
     name = name.lower()
 
-    chat_models = []
+    chat_models = set()
     for model, attrs in litellm.model_cost.items():
         model = model.lower()
         if attrs.get("mode") != "chat":
@@ -677,8 +693,10 @@ def fuzzy_match_models(name):
         else:
             fq_model = provider + model
 
-        chat_models.append((fq_model, model))
+        chat_models.add(fq_model)
+        chat_models.add(model)
 
+    chat_models = sorted(chat_models)
     # exactly matching model
     # matching_models = [
     #    (fq,m) for fq,m in chat_models
@@ -688,19 +706,14 @@ def fuzzy_match_models(name):
     #    return matching_models
 
     # Check for model names containing the name
-    matching_models = [(fq, m) for fq, m in chat_models if name in fq]
+    matching_models = [m for m in chat_models if name in m]
     if matching_models:
         return matching_models
 
     # Check for slight misspellings
-    models = [m for fq, m in chat_models]
+    models = list(chat_models)
     matching_models = difflib.get_close_matches(name, models, n=3, cutoff=0.8)
-    if matching_models:
-        return list(zip(matching_models, matching_models))
-
-    fq_models = [fq for fq, m in chat_models]
-    matching_models = difflib.get_close_matches(name, fq_models, n=3, cutoff=0.8)
-    return list(zip(matching_models, matching_models))
+    return sorted(matching_models)
 
 
 def print_matching_models(io, search):
@@ -708,11 +721,7 @@ def print_matching_models(io, search):
     if matches:
         io.tool_output(f'Models which match "{search}":')
         for model in matches:
-            fq, m = model
-            if fq == m:
-                io.tool_output(f"- {m}")
-            else:
-                io.tool_output(f"- {m} ({fq})")
+            io.tool_output(f"- {model}")
     else:
         io.tool_output(f'No models match "{search}".')
 

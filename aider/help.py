@@ -6,11 +6,26 @@ from pathlib import Path
 
 import importlib_resources
 
-from aider import __version__
+from aider import __version__, utils
 from aider.dump import dump  # noqa: F401
 from aider.help_pats import exclude_website_pats
 
 warnings.simplefilter("ignore", category=FutureWarning)
+
+
+def install_help_extra(io):
+    pip_install_cmd = [
+        "aider-chat[help]",
+        "--extra-index-url",
+        "https://download.pytorch.org/whl/cpu",
+    ]
+    res = utils.check_pip_install_extra(
+        io,
+        "llama_index.embeddings.huggingface",
+        "To use interactive /help you need to install the help extras",
+        pip_install_cmd,
+    )
+    return res
 
 
 def get_package_files():
@@ -106,7 +121,7 @@ class Help:
 
 # Relevant docs:
 
-"""
+"""  # noqa: E231
 
         for node in nodes:
             url = node.metadata.get("url", "")

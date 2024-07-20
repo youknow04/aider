@@ -386,6 +386,56 @@ class TestCommands(TestCase):
 
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
+    def test_cmd_tokens_output(self):
+        with GitTemporaryDirectory() as repo_dir:
+            # Create a small repository with a few files
+            (Path(repo_dir) / "file1.txt").write_text("Content of file 1")
+            (Path(repo_dir) / "file2.py").write_text("print('Content of file 2')")
+            (Path(repo_dir) / "subdir").mkdir()
+            (Path(repo_dir) / "subdir" / "file3.md").write_text("# Content of file 3")
+
+            repo = git.Repo.init(repo_dir)
+            repo.git.add(A=True)
+            repo.git.commit("-m", "Initial commit")
+
+            io = InputOutput(pretty=False, yes=False)
+            from aider.coders import Coder
+
+            coder = Coder.create(Model("claude-3-5-sonnet-20240620"), None, io)
+            print(coder.get_announcements())
+            commands = Commands(io, coder)
+
+            commands.cmd_add("*.txt")
+
+            # Capture the output of cmd_tokens
+            original_tool_output = io.tool_output
+            output_lines = []
+
+            def capture_output(*args, **kwargs):
+                output_lines.extend(args)
+                original_tool_output(*args, **kwargs)
+
+            io.tool_output = capture_output
+
+            # Run cmd_tokens
+            commands.cmd_tokens("")
+
+            # Restore original tool_output
+            io.tool_output = original_tool_output
+
+            # Check if the output includes repository map information
+            repo_map_line = next((line for line in output_lines if "repository map" in line), None)
+            self.assertIsNotNone(
+                repo_map_line, "Repository map information not found in the output"
+            )
+
+            # Check if the output includes information about all added files
+            self.assertTrue(any("file1.txt" in line for line in output_lines))
+
+            # Check if the total tokens and remaining tokens are reported
+            self.assertTrue(any("tokens total" in line for line in output_lines))
+            self.assertTrue(any("tokens remaining" in line for line in output_lines))
+
     def test_cmd_add_dirname_with_special_chars(self):
         with ChdirTemporaryDirectory():
             io = InputOutput(pretty=False, yes=False)
@@ -555,6 +605,71 @@ class TestCommands(TestCase):
 
             self.assertEqual(file_path.read_text(), "first content")
             self.assertEqual(other_path.read_text(), "dirty content")
+
+            del coder
+            del commands
+            del repo
+
+    def test_cmd_undo_with_newly_committed_file(self):
+        with GitTemporaryDirectory() as repo_dir:
+            repo = git.Repo(repo_dir)
+            io = InputOutput(pretty=False, yes=True)
+            coder = Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Put in a random first commit
+            filename = "first_file.txt"
+            file_path = Path(repo_dir) / filename
+            file_path.write_text("new file content")
+            repo.git.add(filename)
+            repo.git.commit("-m", "Add new file")
+
+            # Create and commit a new file
+            filename = "new_file.txt"
+            file_path = Path(repo_dir) / filename
+            file_path.write_text("new file content")
+            repo.git.add(filename)
+            repo.git.commit("-m", "Add new file")
+
+            # Store the commit hash
+            last_commit_hash = repo.head.commit.hexsha[:7]
+            coder.aider_commit_hashes.add(last_commit_hash)
+
+            # Attempt to undo the last commit, should refuse
+            commands.cmd_undo("")
+
+            # Check that the last commit was not undone
+            self.assertEqual(last_commit_hash, repo.head.commit.hexsha[:7])
+            self.assertTrue(file_path.exists())
+
+            del coder
+            del commands
+            del repo
+
+    def test_cmd_undo_on_first_commit(self):
+        with GitTemporaryDirectory() as repo_dir:
+            repo = git.Repo(repo_dir)
+            io = InputOutput(pretty=False, yes=True)
+            coder = Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Create and commit a new file
+            filename = "new_file.txt"
+            file_path = Path(repo_dir) / filename
+            file_path.write_text("new file content")
+            repo.git.add(filename)
+            repo.git.commit("-m", "Add new file")
+
+            # Store the commit hash
+            last_commit_hash = repo.head.commit.hexsha[:7]
+            coder.aider_commit_hashes.add(last_commit_hash)
+
+            # Attempt to undo the last commit
+            commands.cmd_undo("")
+
+            # Check that the commit is still present
+            self.assertEqual(last_commit_hash, repo.head.commit.hexsha[:7])
+            self.assertTrue(file_path.exists())
 
             del coder
             del commands

@@ -1,21 +1,39 @@
 import re
+from pathlib import Path
 
 from setuptools import find_packages, setup
-
-with open("requirements.txt") as f:
-    requirements = f.read().splitlines()
 
 from aider import __version__
 from aider.help_pats import exclude_website_pats
 
+
+def get_requirements(suffix=""):
+    if suffix:
+        fname = "requirements-" + suffix + ".txt"
+        fname = Path("requirements") / fname
+    else:
+        fname = Path("requirements.txt")
+
+    requirements = fname.read_text().splitlines()
+
+    return requirements
+
+
+requirements = get_requirements()
+
+# README
 with open("README.md", "r", encoding="utf-8") as f:
     long_description = f.read()
     long_description = re.sub(r"\n!\[.*\]\(.*\)", "", long_description)
     # long_description = re.sub(r"\n- \[.*\]\(.*\)", "", long_description)
 
-# Debug: Print discovered packages
-packages = find_packages(exclude=["benchmark"]) + ["aider.website"]
-print("Discovered packages:", packages)
+# Discover packages, plus the website
+packages = find_packages(exclude=["benchmark", "tests"])
+packages += ["aider.website"]
+
+print("Packages:", packages)
+
+extras = "dev help browser playwright".split()
 
 setup(
     name="aider-chat",
@@ -28,6 +46,7 @@ setup(
     },
     exclude_package_data={"aider.website": exclude_website_pats},
     install_requires=requirements,
+    extras_require={extra: get_requirements(extra) for extra in extras},
     python_requires=">=3.9,<3.13",
     entry_points={
         "console_scripts": [

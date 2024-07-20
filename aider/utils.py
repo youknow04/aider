@@ -1,5 +1,9 @@
+import itertools
 import os
+import subprocess
+import sys
 import tempfile
+import time
 from pathlib import Path
 
 import git
@@ -176,3 +180,91 @@ def split_chat_history_markdown(text, include_tool=False):
         messages = [m for m in messages if m["role"] != "tool"]
 
     return messages
+
+
+def get_pip_install(args):
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+    ]
+    cmd += args
+    return cmd
+
+
+def run_install(cmd):
+    print()
+    print("Installing: ", " ".join(cmd))
+
+    try:
+        output = []
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+        spinner = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+        last_update = time.time()
+        update_interval = 0.2  # 5 times per second
+
+        while True:
+            char = process.stdout.read(1)
+            if not char:
+                break
+
+            output.append(char)
+
+            current_time = time.time()
+            if current_time - last_update >= update_interval:
+                print(f" Installing... {next(spinner)}", end="\r", flush=True)
+                last_update = current_time
+
+        return_code = process.wait()
+        output = "".join(output)
+
+        if return_code == 0:
+            print("\rInstallation complete.")
+            print()
+            return True, output
+
+    except subprocess.CalledProcessError as e:
+        print(f"\nError running pip install: {e}")
+
+    print("\nInstallation failed.\n")
+
+    return False, output
+
+
+def check_pip_install_extra(io, module, prompt, pip_install_cmd):
+    try:
+        __import__(module)
+        return True
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    cmd = get_pip_install(pip_install_cmd)
+
+    text = f"{prompt}:\n\n{' '.join(cmd)}\n"
+    io.tool_error(text)
+
+    if not io.confirm_ask("Run pip install?", default="y"):
+        return
+
+    success, output = run_install(cmd)
+    if not success:
+        return
+
+    try:
+        __import__(module)
+        return True
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    io.tool_error(output)
+
+    print()
+    print(f"Failed to install {pip_install_cmd[0]}")

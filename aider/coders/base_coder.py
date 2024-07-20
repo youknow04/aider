@@ -678,9 +678,7 @@ class Coder:
         return inp
 
     def check_for_urls(self, inp):
-        url_pattern = re.compile(
-            r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-        )
+        url_pattern = re.compile(r"(https?://[^\s/$.?#].[^\s]*[^\s,.])")
         urls = url_pattern.findall(inp)
         for url in urls:
             if self.io.confirm_ask(f"Add {url} to the chat?"):
@@ -1072,13 +1070,15 @@ class Coder:
         mentioned_rel_fnames = set()
         fname_to_rel_fnames = {}
         for rel_fname in addable_rel_fnames:
-            if rel_fname in words:
-                mentioned_rel_fnames.add(str(rel_fname))
+            normalized_rel_fname = rel_fname.replace("\\", "/")
+            normalized_words = set(word.replace("\\", "/") for word in words)
+            if normalized_rel_fname in normalized_words:
+                mentioned_rel_fnames.add(rel_fname)
 
             fname = os.path.basename(rel_fname)
 
             # Don't add basenames that could be plain words like "run" or "make"
-            if "/" in fname or "." in fname or "_" in fname or "-" in fname:
+            if "/" in fname or "\\" in fname or "." in fname or "_" in fname or "-" in fname:
                 if fname not in fname_to_rel_fnames:
                     fname_to_rel_fnames[fname] = []
                 fname_to_rel_fnames[fname].append(rel_fname)
@@ -1305,9 +1305,10 @@ class Coder:
         if not self.repo.is_dirty(path):
             return
 
-        fullp = Path(self.abs_root_path(path))
-        if not fullp.stat().st_size:
-            return
+        # We need a committed copy of the file in order to /undo, so skip this
+        # fullp = Path(self.abs_root_path(path))
+        # if not fullp.stat().st_size:
+        #     return
 
         self.io.tool_output(f"Committing {path} before applying edits.")
         self.need_commit_before_edits.add(path)

@@ -131,17 +131,6 @@ class TestMain(TestCase):
             self.assertEqual("one\ntwo\n.aider*\n", gitignore.read_text())
             del os.environ["GIT_CONFIG_GLOBAL"]
 
-    def test_main_git_ignore(self):
-        cwd = Path().cwd()
-        self.assertFalse((cwd / ".git").exists())
-        self.assertFalse((cwd / ".gitignore").exists())
-
-        with patch("aider.main.Coder.create"):
-            main(["--yes"], input=DummyInput())
-
-        self.assertTrue((cwd / ".git").exists())
-        self.assertTrue((cwd / ".gitignore").exists())
-
     def test_main_args(self):
         with patch("aider.main.Coder.create") as MockCoder:
             # --yes will just ok the git repo without blocking on input
@@ -181,6 +170,38 @@ class TestMain(TestCase):
             main(["--dirty-commits"], input=DummyInput())
             _, kwargs = MockCoder.call_args
             assert kwargs["dirty_commits"] is True
+
+    def test_env_file_override(self):
+        with GitTemporaryDirectory() as git_dir:
+            git_dir = Path(git_dir)
+            git_env = git_dir / ".env"
+
+            fake_home = git_dir / "fake_home"
+            fake_home.mkdir()
+            os.environ["HOME"] = str(fake_home)
+            home_env = fake_home / ".env"
+
+            cwd = git_dir / "subdir"
+            cwd.mkdir()
+            os.chdir(cwd)
+            cwd_env = cwd / ".env"
+
+            named_env = git_dir / "named.env"
+
+            os.environ["E"] = "existing"
+            home_env.write_text("A=home\nB=home\nC=home\nD=home")
+            git_env.write_text("A=git\nB=git\nC=git")
+            cwd_env.write_text("A=cwd\nB=cwd")
+            named_env.write_text("A=named")
+
+            with patch('pathlib.Path.home', return_value=fake_home):
+                main(["--yes", "--exit", "--env-file", str(named_env)])
+
+            self.assertEqual(os.environ["A"], "named")
+            self.assertEqual(os.environ["B"], "cwd")
+            self.assertEqual(os.environ["C"], "git")
+            self.assertEqual(os.environ["D"], "home")
+            self.assertEqual(os.environ["E"], "existing")
 
     def test_message_file_flag(self):
         message_file_content = "This is a test message from a file."

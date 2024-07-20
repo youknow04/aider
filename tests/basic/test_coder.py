@@ -205,6 +205,44 @@ class TestCoder(unittest.TestCase):
 
             self.assertEqual(coder.abs_fnames, set([str(fname.resolve())]))
 
+    def test_get_file_mentions_path_formats(self):
+        with GitTemporaryDirectory():
+            io = InputOutput(pretty=False, yes=True)
+            coder = Coder.create(self.GPT35, None, io)
+
+            # Test cases with different path formats
+            test_cases = [
+                # Unix paths in content, Unix paths in get_addable_relative_files
+                ("Check file1.txt and dir/file2.txt", ["file1.txt", "dir/file2.txt"]),
+                # Windows paths in content, Windows paths in get_addable_relative_files
+                ("Check file1.txt and dir\\file2.txt", ["file1.txt", "dir\\file2.txt"]),
+                # Unix paths in content, Windows paths in get_addable_relative_files
+                ("Check file1.txt and dir/file2.txt", ["file1.txt", "dir\\file2.txt"]),
+                # Windows paths in content, Unix paths in get_addable_relative_files
+                ("Check file1.txt and dir\\file2.txt", ["file1.txt", "dir/file2.txt"]),
+                # Mixed paths in content, Unix paths in get_addable_relative_files
+                (
+                    "Check file1.txt, dir/file2.txt, and other\\file3.txt",
+                    ["file1.txt", "dir/file2.txt", "other/file3.txt"],
+                ),
+                # Mixed paths in content, Windows paths in get_addable_relative_files
+                (
+                    "Check file1.txt, dir/file2.txt, and other\\file3.txt",
+                    ["file1.txt", "dir\\file2.txt", "other\\file3.txt"],
+                ),
+            ]
+
+            for content, addable_files in test_cases:
+                with self.subTest(content=content, addable_files=addable_files):
+                    coder.get_addable_relative_files = MagicMock(return_value=set(addable_files))
+                    mentioned_files = coder.get_file_mentions(content)
+                    expected_files = set(addable_files)
+                    self.assertEqual(
+                        mentioned_files,
+                        expected_files,
+                        f"Failed for content: {content}, addable_files: {addable_files}",
+                    )
+
     def test_run_with_file_deletion(self):
         # Create a few temporary files
 
@@ -330,7 +368,7 @@ class TestCoder(unittest.TestCase):
         self.assertEqual(len(coder.abs_fnames), 2)
 
     def test_new_file_edit_one_commit(self):
-        """A new file shouldn't get pre-committed before the GPT edit commit"""
+        """A new file should get pre-committed before the GPT edit commit"""
         with GitTemporaryDirectory():
             repo = git.Repo()
 
@@ -369,7 +407,7 @@ new
             self.assertEqual(content, "new\n")
 
             num_commits = len(list(repo.iter_commits(repo.active_branch.name)))
-            self.assertEqual(num_commits, 1)
+            self.assertEqual(num_commits, 2)
 
     def test_only_commit_gpt_edited_file(self):
         """
@@ -588,6 +626,68 @@ two
             self.assertNotIn(fname1, str(coder.abs_fnames))
             self.assertNotIn(fname2, str(coder.abs_fnames))
             self.assertNotIn(fname3, str(coder.abs_fnames))
+
+    def test_check_for_urls(self):
+        io = InputOutput(yes=True)
+        coder = Coder.create(self.GPT35, None, io=io, pretty=False)
+        coder.commands.scraper = MagicMock()
+        coder.commands.scraper.scrape = MagicMock(return_value="some content")
+
+        # Test various URL formats
+        test_cases = [
+            ("Check http://example.com, it's cool", "http://example.com"),
+            ("Visit https://www.example.com/page and see stuff", "https://www.example.com/page"),
+            (
+                "Go to http://subdomain.example.com:8080/path?query=value, or not",
+                "http://subdomain.example.com:8080/path?query=value",
+            ),
+            (
+                "See https://example.com/path#fragment for example",
+                "https://example.com/path#fragment",
+            ),
+            ("Look at http://localhost:3000", "http://localhost:3000"),
+            ("View https://example.com/setup#whatever", "https://example.com/setup#whatever"),
+            ("Open http://127.0.0.1:8000/api/v1/", "http://127.0.0.1:8000/api/v1/"),
+            (
+                "Try https://example.com/path/to/page.html?param1=value1&param2=value2",
+                "https://example.com/path/to/page.html?param1=value1&param2=value2",
+            ),
+            ("Access http://user:password@example.com", "http://user:password@example.com"),
+            (
+                "Use https://example.com/path_(with_parentheses)",
+                "https://example.com/path_(with_parentheses)",
+            ),
+        ]
+
+        for input_text, expected_url in test_cases:
+            with self.subTest(input_text=input_text):
+                result = coder.check_for_urls(input_text)
+                self.assertIn(expected_url, result)
+
+        # Test cases from the GitHub issue
+        issue_cases = [
+            ("check http://localhost:3002, there is an error", "http://localhost:3002"),
+            (
+                "can you check out https://example.com/setup#whatever?",
+                "https://example.com/setup#whatever",
+            ),
+        ]
+
+        for input_text, expected_url in issue_cases:
+            with self.subTest(input_text=input_text):
+                result = coder.check_for_urls(input_text)
+                self.assertIn(expected_url, result)
+
+        # Test case with multiple URLs
+        multi_url_input = "Check http://example1.com and https://example2.com/page"
+        result = coder.check_for_urls(multi_url_input)
+        self.assertIn("http://example1.com", result)
+        self.assertIn("https://example2.com/page", result)
+
+        # Test case with no URL
+        no_url_input = "This text contains no URL"
+        result = coder.check_for_urls(no_url_input)
+        self.assertEqual(result, no_url_input)
 
 
 if __name__ == "__main__":
