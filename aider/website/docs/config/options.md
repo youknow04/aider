@@ -48,10 +48,10 @@ usage: aider [-h] [--openai-api-key] [--anthropic-api-key] [--model]
              [--attribute-author | --no-attribute-author]
              [--attribute-committer | --no-attribute-committer]
              [--attribute-commit-message | --no-attribute-commit-message]
-             [--dry-run | --no-dry-run] [--commit] [--lint]
-             [--lint-cmd] [--auto-lint | --no-auto-lint]
+             [--commit] [--commit-prompt] [--dry-run | --no-dry-run]
+             [--lint] [--lint-cmd] [--auto-lint | --no-auto-lint]
              [--test-cmd] [--auto-test | --no-auto-test] [--test]
-             [--vim] [--voice-language] [--version]
+             [--file] [--vim] [--voice-language] [--version]
              [--just-check-update]
              [--check-update | --no-check-update] [--apply] [--yes]
              [-v] [--show-repo-map] [--show-prompts] [--exit]
@@ -331,6 +331,15 @@ Aliases:
   - `--attribute-commit-message`
   - `--no-attribute-commit-message`
 
+### `--commit`
+Commit all pending changes with a suitable commit message, then exit  
+Default: False  
+Environment variable: `AIDER_COMMIT`  
+
+### `--commit-prompt PROMPT`
+Specify a custom prompt for generating commit messages  
+Environment variable: `AIDER_COMMIT_PROMPT`  
+
 ### `--dry-run`
 Perform a dry run without modifying files (default: False)  
 Default: False  
@@ -340,11 +349,6 @@ Aliases:
   - `--no-dry-run`
 
 ## Fixing and committing:
-
-### `--commit`
-Commit all pending changes with a suitable commit message, then exit  
-Default: False  
-Environment variable: `AIDER_COMMIT`  
 
 ### `--lint`
 Lint and fix provided files, or dirty files if none provided  
@@ -383,6 +387,10 @@ Default: False
 Environment variable: `AIDER_TEST`  
 
 ## Other Settings:
+
+### `--file FILE`
+specify a file to edit (can be used multiple times)  
+Environment variable: `AIDER_FILE`  
 
 ### `--vim`
 Use VI editing mode in the terminal (default: False)  

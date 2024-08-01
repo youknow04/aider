@@ -12,7 +12,7 @@ from prompt_toolkit.enums import EditingMode
 from aider import __version__, models, utils
 from aider.args import get_parser
 from aider.coders import Coder
-from aider.commands import SwitchModel
+from aider.commands import SwitchCoder
 from aider.io import InputOutput
 from aider.llm import litellm  # noqa: F401; properly init litellm on launch
 from aider.repo import GitRepo
@@ -327,7 +327,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     if not args.verify_ssl:
         import httpx
 
-        litellm.client_session = httpx.Client(verify=False)
+        litellm._load_litellm()
+        litellm._lazy_module.client_session = httpx.Client(verify=False)
 
     if args.dark_mode:
         args.user_input_color = "#32FF32"
@@ -371,10 +372,11 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     for fname in loaded_dotenvs:
         io.tool_output(f"Loaded {fname}")
 
-    fnames = [str(Path(fn).resolve()) for fn in args.files]
-    if len(args.files) > 1:
+    all_files = args.files + (args.file or [])
+    fnames = [str(Path(fn).resolve()) for fn in all_files]
+    if len(all_files) > 1:
         good = True
-        for fname in args.files:
+        for fname in all_files:
             if Path(fname).is_dir():
                 io.tool_error(f"{fname} is a directory, not provided alone.")
                 good = False
@@ -385,13 +387,13 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
             return 1
 
     git_dname = None
-    if len(args.files) == 1:
-        if Path(args.files[0]).is_dir():
+    if len(all_files) == 1:
+        if Path(all_files[0]).is_dir():
             if args.git:
-                git_dname = str(Path(args.files[0]).resolve())
+                git_dname = str(Path(all_files[0]).resolve())
                 fnames = []
             else:
-                io.tool_error(f"{args.files[0]} is a directory, but --no-git selected.")
+                io.tool_error(f"{all_files[0]} is a directory, but --no-git selected.")
                 return 1
 
     # We can't know the git repo for sure until after parsing the args.
@@ -491,6 +493,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
             short_key_3=args.short_key_3,
             short_key_4=args.short_key_4,
             attribute_commit_message=args.attribute_commit_message,
+            verify_ssl=args.verify_ssl,
+            commit_prompt=args.commit_prompt,
         )
 
     except ValueError as err:
@@ -510,16 +514,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         utils.show_messages(messages)
         return
 
-    if args.commit:
-        if args.dry_run:
-            io.tool_output("Dry run enabled, skipping commit.")
-        else:
-            coder.commands.cmd_commit()
-        return
-
     if args.lint:
         coder.commands.cmd_lint(fnames=fnames)
-        return
 
     if args.test:
         if not args.test_cmd:
@@ -528,6 +524,14 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         test_errors = coder.commands.cmd_test(args.test_cmd)
         if test_errors:
             coder.run(test_errors)
+
+    if args.commit:
+        if args.dry_run:
+            io.tool_output("Dry run enabled, skipping commit.")
+        else:
+            coder.commands.cmd_commit()
+
+    if args.lint or args.test or args.commit:
         return
 
     if args.show_repo_map:
@@ -589,8 +593,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         try:
             coder.run()
             return
-        except SwitchModel as switch:
-            coder = Coder.create(main_model=switch.model, io=io, from_coder=coder)
+        except SwitchCoder as switch:
+            coder = Coder.create(io=io, from_coder=coder, **switch.kwargs)
             coder.show_announcements()
 
 

@@ -5,7 +5,7 @@ import sys
 import tempfile
 from io import StringIO
 from pathlib import Path
-from unittest import TestCase
+from unittest import TestCase, mock
 
 import git
 
@@ -536,6 +536,21 @@ class TestCommands(TestCase):
         commands.cmd_add("file.txt")
         self.assertEqual(coder.abs_fnames, set())
 
+    def test_cmd_test_unbound_local_error(self):
+        with ChdirTemporaryDirectory():
+            io = InputOutput(pretty=False, yes=False)
+            from aider.coders import Coder
+
+            coder = Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Mock the io.prompt_ask method to simulate user input
+            io.prompt_ask = lambda *args, **kwargs: "y"
+
+            # Test the cmd_run method with a command that should not raise an error
+            result = commands.cmd_run("exit 1", add_on_nonzero_exit=True)
+            self.assertIn("I ran this command", result)
+
     def test_cmd_add_drop_untracked_files(self):
         with GitTemporaryDirectory():
             repo = git.Repo()
@@ -701,3 +716,41 @@ class TestCommands(TestCase):
             self.assertNotIn(fname1, str(coder.abs_fnames))
             self.assertNotIn(fname2, str(coder.abs_fnames))
             self.assertNotIn(fname3, str(coder.abs_fnames))
+
+    def test_cmd_lint_with_dirty_file(self):
+        with GitTemporaryDirectory() as repo_dir:
+            repo = git.Repo(repo_dir)
+            io = InputOutput(pretty=False, yes=True)
+            coder = Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Create and commit a file
+            filename = "test_file.py"
+            file_path = Path(repo_dir) / filename
+            file_path.write_text("def hello():\n    print('Hello, World!')\n")
+            repo.git.add(filename)
+            repo.git.commit("-m", "Add test_file.py")
+
+            # Modify the file to make it dirty
+            file_path.write_text("def hello():\n    print('Hello, World!')\n\n# Dirty line\n")
+
+            # Mock the linter.lint method
+            with mock.patch.object(coder.linter, "lint") as mock_lint:
+                # Set up the mock to return an empty string (no lint errors)
+                mock_lint.return_value = ""
+
+                # Run cmd_lint
+                commands.cmd_lint()
+
+                # Check if the linter was called with a filename string
+                # whose Path().name matches the expected filename
+                mock_lint.assert_called_once()
+                called_arg = mock_lint.call_args[0][0]
+                self.assertEqual(Path(called_arg).name, filename)
+
+            # Verify that the file is still dirty after linting
+            self.assertTrue(repo.is_dirty(filename))
+
+            del coder
+            del commands
+            del repo

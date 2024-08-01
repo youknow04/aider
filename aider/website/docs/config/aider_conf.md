@@ -206,14 +206,17 @@ cog.outl("```")
 ## Prefix commit messages with 'aider: ' (default: False)
 #attribute-commit-message: false
 
+## Commit all pending changes with a suitable commit message, then exit
+#commit: false
+
+## Specify a custom prompt for generating commit messages
+#commit-prompt:
+
 ## Perform a dry run without modifying files (default: False)
 #dry-run: false
 
 ########################
 # Fixing and committing:
-
-## Commit all pending changes with a suitable commit message, then exit
-#commit: false
 
 ## Lint and fix provided files, or dirty files if none provided
 #lint: false
@@ -235,6 +238,9 @@ cog.outl("```")
 
 #################
 # Other Settings:
+
+## specify a file to edit (can be used multiple times)
+#file:
 
 ## Use VI editing mode in the terminal (default: False)
 #vim: false

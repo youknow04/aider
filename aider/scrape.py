@@ -33,7 +33,8 @@ def install_playwright(io):
         return True
 
     pip_cmd = utils.get_pip_install(["aider-chat[playwright]"])
-    chromium_cmd = "playwright install --with-deps chromium".split()
+    chromium_cmd = "-m playwright install --with-deps chromium"
+    chromium_cmd = [sys.executable] + chromium_cmd.split()
 
     cmds = ""
     if not has_pip:
@@ -47,7 +48,7 @@ def install_playwright(io):
 See {urls.enable_playwright} for more info.
 """
 
-    io.tool_error(text)
+    io.tool_output(text)
     if not io.confirm_ask("Install playwright?", default="y"):
         return
 
@@ -71,9 +72,10 @@ class Scraper:
     playwright_instructions_shown = False
 
     # Public API...
-    def __init__(self, print_error=None, playwright_available=None):
+    def __init__(self, print_error=None, playwright_available=None, verify_ssl=True):
         """
         `print_error` - a function to call to print error/debug info.
+        `verify_ssl` - if False, disable SSL certificate verification when scraping.
         """
         if print_error:
             self.print_error = print_error
@@ -81,6 +83,7 @@ class Scraper:
             self.print_error = print
 
         self.playwright_available = playwright_available
+        self.verify_ssl = verify_ssl
 
     def scrape(self, url):
         """
@@ -95,7 +98,8 @@ class Scraper:
             content = self.scrape_with_httpx(url)
 
         if not content:
-            return
+            self.print_error(f"Failed to retrieve content from {url}")
+            return None
 
         self.try_pandoc()
 
@@ -113,23 +117,35 @@ class Scraper:
                 browser = p.chromium.launch()
             except Exception as e:
                 self.playwright_available = False
-                self.print_error(e)
+                self.print_error(str(e))
                 return
 
-            page = browser.new_page()
-
-            user_agent = page.evaluate("navigator.userAgent")
-            user_agent = user_agent.replace("Headless", "")
-            user_agent = user_agent.replace("headless", "")
-            user_agent += " " + aider_user_agent
-
-            page = browser.new_page(user_agent=user_agent)
             try:
-                page.goto(url, wait_until="networkidle", timeout=5000)
-            except playwright._impl._errors.TimeoutError:
-                pass
-            content = page.content()
-            browser.close()
+                context = browser.new_context(ignore_https_errors=not self.verify_ssl)
+                page = context.new_page()
+
+                user_agent = page.evaluate("navigator.userAgent")
+                user_agent = user_agent.replace("Headless", "")
+                user_agent = user_agent.replace("headless", "")
+                user_agent += " " + aider_user_agent
+
+                page.set_extra_http_headers({"User-Agent": user_agent})
+
+                try:
+                    page.goto(url, wait_until="networkidle", timeout=5000)
+                except playwright._impl._errors.TimeoutError:
+                    self.print_error(f"Timeout while loading {url}")
+                except playwright._impl._errors.Error as e:
+                    self.print_error(f"Error navigating to {url}: {str(e)}")
+                    return None
+
+                try:
+                    content = page.content()
+                except playwright._impl._errors.Error as e:
+                    self.print_error(f"Error retrieving page content: {str(e)}")
+                    content = None
+            finally:
+                browser.close()
 
         return content
 
@@ -138,7 +154,7 @@ class Scraper:
 
         headers = {"User-Agent": f"Mozilla./5.0 ({aider_user_agent})"}
         try:
-            with httpx.Client(headers=headers) as client:
+            with httpx.Client(headers=headers, verify=self.verify_ssl) as client:
                 response = client.get(url)
                 response.raise_for_status()
                 return response.text

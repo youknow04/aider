@@ -350,18 +350,23 @@ def get_parser(default_config_files, git_root):
         help="Prefix commit messages with 'aider: ' (default: False)",
     )
     group.add_argument(
+        "--commit",
+        action="store_true",
+        help="Commit all pending changes with a suitable commit message, then exit",
+        default=False,
+    )
+    group.add_argument(
+        "--commit-prompt",
+        metavar="PROMPT",
+        help="Specify a custom prompt for generating commit messages",
+    )
+    group.add_argument(
         "--dry-run",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Perform a dry run without modifying files (default: False)",
     )
     group = parser.add_argument_group("Fixing and committing")
-    group.add_argument(
-        "--commit",
-        action="store_true",
-        help="Commit all pending changes with a suitable commit message, then exit",
-        default=False,
-    )
     group.add_argument(
         "--lint",
         action="store_true",
@@ -403,6 +408,12 @@ def get_parser(default_config_files, git_root):
 
     ##########
     group = parser.add_argument_group("Other Settings")
+    group.add_argument(
+        "--file",
+        action="append",
+        metavar="FILE",
+        help="specify a file to edit (can be used multiple times)",
+    )
     group.add_argument(
         "--vim",
         action="store_true",

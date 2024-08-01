@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -668,7 +669,7 @@ two
         issue_cases = [
             ("check http://localhost:3002, there is an error", "http://localhost:3002"),
             (
-                "can you check out https://example.com/setup#whatever?",
+                "can you check out https://example.com/setup#whatever",
                 "https://example.com/setup#whatever",
             ),
         ]
@@ -687,7 +688,52 @@ two
         # Test case with no URL
         no_url_input = "This text contains no URL"
         result = coder.check_for_urls(no_url_input)
-        self.assertEqual(result, no_url_input)
+        self.assertEqual(result, [])
+
+        # Test case with the same URL appearing multiple times
+        repeated_url_input = (
+            "Check https://example.com, then https://example.com again, and https://example.com one"
+            " more time"
+        )
+        result = coder.check_for_urls(repeated_url_input)
+        self.assertEqual(result.count("https://example.com"), 1)
+        self.assertIn("https://example.com", result)
+
+    def test_coder_from_coder_with_subdir(self):
+        with GitTemporaryDirectory() as root:
+            repo = git.Repo.init(root)
+
+            # Create a file in a subdirectory
+            subdir = Path(root) / "subdir"
+            subdir.mkdir()
+            test_file = subdir / "test_file.txt"
+            test_file.write_text("Test content")
+
+            repo.git.add(str(test_file))
+            repo.git.commit("-m", "Add test file")
+
+            # Change directory to the subdirectory
+            os.chdir(subdir.resolve())
+
+            # Create the first coder
+            io = InputOutput(yes=True)
+            coder1 = Coder.create(self.GPT35, None, io=io, fnames=[test_file.name])
+
+            # Create a new coder from the first coder
+            coder2 = Coder.create(from_coder=coder1)
+
+            # Check if both coders have the same set of abs_fnames
+            self.assertEqual(coder1.abs_fnames, coder2.abs_fnames)
+
+            # Ensure the abs_fnames contain the correct absolute path
+            expected_abs_path = os.path.realpath(str(test_file))
+            coder1_abs_fnames = set(os.path.realpath(path) for path in coder1.abs_fnames)
+            self.assertIn(expected_abs_path, coder1_abs_fnames)
+            self.assertIn(expected_abs_path, coder2.abs_fnames)
+
+            # Check that the abs_fnames do not contain duplicate or incorrect paths
+            self.assertEqual(len(coder1.abs_fnames), 1)
+            self.assertEqual(len(coder2.abs_fnames), 1)
 
 
 if __name__ == "__main__":
