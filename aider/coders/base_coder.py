@@ -104,6 +104,7 @@ class Coder:
     ignore_mentions = None
     chat_language = None
     file_watcher = None
+    message_start_time = None
 
     @classmethod
     def create(
@@ -775,13 +776,16 @@ class Coder:
         yield from self.send_message(user_message)
 
     def init_before_message(self):
+        self.message_start_time = time.time()
         self.aider_edited_files = set()
         self.reflected_message = None
         self.num_reflections = 0
         self.lint_outcome = None
         self.test_outcome = None
         self.shell_commands = []
-        self.message_cost = 0
+        self.message_cost = 0.0
+        self.message_tokens_sent = 0
+        self.message_tokens_received = 0
 
         if self.repo:
             self.commit_before_message.append(self.repo.get_head_commit_sha())
@@ -1697,7 +1701,17 @@ class Coder:
             tokens_report += f", {format_tokens(cache_write_tokens)} cache write"
         if cache_hit_tokens:
             tokens_report += f", {format_tokens(cache_hit_tokens)} cache hit"
-        tokens_report += f", {format_tokens(self.message_tokens_received)} received."
+        tokens_report += f", {format_tokens(self.message_tokens_received)} received"
+
+        # Calculate TPS
+        if self.message_start_time:
+            elapsed_time = time.time() - self.message_start_time
+            total_tokens = self.message_tokens_sent + self.message_tokens_received
+            if elapsed_time > 0:
+                tps = total_tokens / elapsed_time
+                tokens_report += f", {tps:.1f} tokens/sec"
+
+        tokens_report += "."
 
         if not self.main_model.info.get("input_cost_per_token"):
             self.usage_report = tokens_report
